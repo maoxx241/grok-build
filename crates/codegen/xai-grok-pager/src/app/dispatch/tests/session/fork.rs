@@ -999,6 +999,31 @@ fn dispatch_fork_worktree_mode_always_skips_modal_and_creates_worktree() {
 }
 
 #[test]
+fn dispatch_fork_always_creates_worktree_from_detached_worktree() {
+    let mut app = fork_test_app();
+    let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+    agent.current_branch = None;
+    agent.session.is_worktree = true;
+    agent.is_worktree = true;
+    app.fork_worktree_mode = crate::app::app_view::WorktreeMode::Always;
+
+    let effects = dispatch(Action::Fork(fork_args(None, None)), &mut app);
+
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::CreateWorktreeSession { .. })),
+        "forking from an existing worktree must create another worktree, got {effects:?}"
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::ForkSession { .. })),
+        "worktree mode must not silently reuse the current directory, got {effects:?}"
+    );
+}
+
+#[test]
 fn dispatch_fork_worktree_mode_never_skips_modal_and_forks_in_cwd() {
     let mut app = fork_test_app();
     app.fork_worktree_mode = crate::app::app_view::WorktreeMode::Never;

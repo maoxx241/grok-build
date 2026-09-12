@@ -154,7 +154,7 @@ pub(in crate::app::dispatch) fn dispatch_new_session(app: &mut AppView) -> Vec<E
         app.cwd_has_git_ancestor
     } else {
         get_active_agent(app)
-            .map(|a| a.current_branch.is_some())
+            .map(|a| a.current_branch.is_some() || a.session.is_worktree)
             .unwrap_or(app.cwd_has_git_ancestor)
     };
     let always = in_git_repo && matches!(app.new_session_worktree_mode, WorktreeMode::Always);

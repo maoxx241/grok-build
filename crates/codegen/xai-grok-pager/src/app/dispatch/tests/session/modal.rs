@@ -167,6 +167,33 @@ fn dispatch_new_session_opens_question_modal_in_git_repo() {
 }
 
 #[test]
+fn dispatch_new_session_always_creates_worktree_from_detached_worktree() {
+    let mut app = new_session_test_app();
+    let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+    // Native Git worktrees have detached HEAD, and the completed worktree
+    // creation event clears current_branch before a Git status update arrives.
+    agent.current_branch = None;
+    agent.session.is_worktree = true;
+    agent.is_worktree = true;
+    app.new_session_worktree_mode = crate::app::app_view::WorktreeMode::Always;
+
+    let effects = dispatch(Action::NewSession, &mut app);
+
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::CreateWorktreeSession { .. })),
+        "a new session from an existing worktree must create another worktree, got {effects:?}"
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::CreateSession { .. })),
+        "worktree mode must not silently reuse the current directory, got {effects:?}"
+    );
+}
+
+#[test]
 fn dispatch_new_session_skips_modal_in_non_git_repo() {
     // current_branch stays None (no git repo), so no modal opens and dispatch goes straight to dispatch_new_session_inner
     let mut app = test_app_with_agent();

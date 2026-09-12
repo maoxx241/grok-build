@@ -29,7 +29,12 @@ pub(in crate::app::dispatch) fn dispatch_fork(
     let (has_session, in_git_repo) = app
         .agents
         .get(&parent_id)
-        .map(|a| (a.session.session_id.is_some(), a.current_branch.is_some()))
+        .map(|a| {
+            (
+                a.session.session_id.is_some(),
+                a.current_branch.is_some() || a.session.is_worktree,
+            )
+        })
         .unwrap_or((false, false));
     if !has_session {
         app.show_toast("Cannot fork: session is still being created");
