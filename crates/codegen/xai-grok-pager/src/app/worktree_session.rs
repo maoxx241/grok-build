@@ -6,17 +6,33 @@ use std::path::{Path, PathBuf};
 use agent_client_protocol as acp;
 use serde::Serialize;
 use xai_acp_lib::{AcpAgentTx, acp_send};
+use xai_grok_shell::util::config::WorktreeHintMode;
 use xai_grok_workspace::session::git::RestoreDegree;
 
 use super::effects::{
     acp_send_bounded, parse_worktree_restore_payload, parse_worktree_strategy_summary,
     sanitize_user_error,
 };
-use super::session_startup::worktree_session_cwd;
+use super::session_startup::{SessionStartupIntent, worktree_session_cwd};
 use super::session_title_resolve::worktree_resume_failure_message;
 
 pub(crate) const CREATE_METHOD: &str = "x.ai/git/worktree/create_from_worktree_sync";
 pub(crate) const RESUME_METHOD: &str = "x.ai/git/worktree/resume_session";
+
+/// Apply the saved new-session preference at CLI startup without changing resume or fork.
+/// Callers retain an explicit `--worktree` selection and use the existing worktree startup path.
+/// This only selects the path; its normal auth and folder-trust gates still own creation.
+pub(crate) fn default_new_worktree(
+    intent: &SessionStartupIntent,
+    mode: WorktreeHintMode,
+    cwd: &Path,
+) -> bool {
+    matches!(
+        intent,
+        SessionStartupIntent::NewAuto | SessionStartupIntent::NewWithId { .. }
+    ) && mode == WorktreeHintMode::Always
+        && cwd.ancestors().any(|dir| dir.join(".git").exists())
+}
 
 /// How the new worktree's working tree is seeded from the source checkout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -289,6 +305,84 @@ pub(crate) fn note_orphaned_worktree(message: &str, worktree_root: &Path) -> Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_default_only_isolates_fresh_sessions_in_git() {
+        use clap::Parser;
+
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::create_dir(repo.path().join(".git")).unwrap();
+        let subdir = repo.path().join("src");
+        std::fs::create_dir(&subdir).unwrap();
+        for argv in [
+            vec!["grok"],
+            vec!["grok", "--session-id", "new-id"],
+            vec!["grok", "-p", "hello"],
+        ] {
+            let args = super::super::cli::PagerArgs::try_parse_from(argv).unwrap();
+            let intent = args.session_startup_intent().unwrap();
+            assert!(default_new_worktree(
+                &intent,
+                WorktreeHintMode::Always,
+                &subdir
+            ));
+            assert!(!default_new_worktree(
+                &intent,
+                WorktreeHintMode::Ask,
+                &subdir
+            ));
+            assert!(!default_new_worktree(
+                &intent,
+                WorktreeHintMode::Never,
+                &subdir
+            ));
+            let plain = tempfile::tempdir().unwrap();
+            assert!(!default_new_worktree(
+                &intent,
+                WorktreeHintMode::Always,
+                plain.path()
+            ));
+        }
+    }
+
+    #[test]
+    fn startup_default_preserves_resume_continue_and_fork() {
+        use clap::Parser;
+
+        let repo = tempfile::tempdir().unwrap();
+        // A linked worktree has a .git file, which is also a Git ancestor.
+        std::fs::write(
+            repo.path().join(".git"),
+            "gitdir: /common/git/worktrees/test",
+        )
+        .unwrap();
+        for argv in [
+            vec!["grok", "--resume", "existing"],
+            vec!["grok", "--resume"],
+            vec!["grok", "--continue"],
+            vec!["grok", "--resume", "existing", "--fork-session"],
+            vec![
+                "grok",
+                "--continue",
+                "--fork-session",
+                "--session-id",
+                "child",
+            ],
+            vec!["grok", "--resume", "existing", "--worktree", "explicit"],
+        ] {
+            let args = super::super::cli::PagerArgs::try_parse_from(argv).unwrap();
+            assert!(!default_new_worktree(
+                &args.session_startup_intent().unwrap(),
+                WorktreeHintMode::Always,
+                repo.path(),
+            ));
+        }
+        assert!(default_new_worktree(
+            &SessionStartupIntent::NewAuto,
+            WorktreeHintMode::Always,
+            repo.path(),
+        ));
+    }
 
     #[test]
     fn spec_from_cli_flags() {

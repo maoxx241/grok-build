@@ -806,6 +806,16 @@ pub async fn run(
     let intent = args
         .session_startup_intent()
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let hints = xai_grok_shell::util::config::resolve_hints(Some(&raw_config), None, None, None);
+    if args.worktree.is_none()
+        && worktree_session::default_new_worktree(
+            &intent,
+            hints.new_session_worktree_mode,
+            &std::env::current_dir()?,
+        )
+    {
+        args.worktree = Some(String::new());
+    }
     let mut materialize_ctx = session_startup::MaterializeCtx::from_pager_args(&args);
     materialize_ctx.restore_progress_on_stdout =
         std::io::IsTerminal::is_terminal(&std::io::stdout());

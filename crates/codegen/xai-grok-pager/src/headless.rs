@@ -1018,7 +1018,7 @@ pub async fn run_single_turn(
     use crate::app::session_startup::{self, MaterializedStartup, SessionStartupFlags};
     let has_resume_id = options.resume.as_deref().filter(|s| !s.is_empty());
     let resume_most_recent = options.resume.as_deref() == Some("");
-    let worktree =
+    let mut worktree =
         WorktreeSpec::from_cli(options.worktree.as_deref(), options.worktree_ref.as_deref());
     let intent = session_startup::session_startup_intent_from_flags(SessionStartupFlags {
         session_id: options.session_id.as_deref(),
@@ -1032,6 +1032,17 @@ pub async fn run_single_turn(
     .inspect_err(|_| {
         PendingStartup::finish_held(&mut pending_startup, crate::acp::StartupOutcome::Error);
     })?;
+
+    let hints = cli_config::resolve_hints(Some(&raw_config), None, None, None);
+    if worktree.is_none()
+        && crate::app::worktree_session::default_new_worktree(
+            &intent,
+            hints.new_session_worktree_mode,
+            &cwd,
+        )
+    {
+        worktree = Some(WorktreeSpec::default());
+    }
 
     let cwd_str = cwd.to_string_lossy().to_string();
     let materialized = session_startup::materialize_startup_for_cwd(
